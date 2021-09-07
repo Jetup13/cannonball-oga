@@ -34,6 +34,11 @@ Build
     mkdir build
     cd build
 
+### ArkOS
+
+    cmake -DTARGET=sdl2gles ../cmake/
+    make
+
 ### Non-IDE (e.g. straight GCC)
     
     cmake -G "Insert Generator Name Here" ../cmake

@@ -301,6 +301,18 @@ void Input::handle_joy(const uint8_t button, const bool is_pressed)
 
     if (button == pad_config[7])
         keys[VIEWPOINT] = is_pressed;
+	
+    if (button == pad_config[8])
+        keys[UP] = is_pressed;
+	
+    if (button == pad_config[9])
+        keys[DOWN] = is_pressed;
+	
+    if (button == pad_config[10])
+        keys[LEFT] = is_pressed;
+
+    if (button == pad_config[11])
+        keys[RIGHT] = is_pressed;
 }
 
 void Input::handle_external_input(ExternalInput external_input) {
