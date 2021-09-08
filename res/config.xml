@@ -30,7 +30,7 @@
         Scale: Scale or zoom factor for window mode. 1 is original size. 
     -->
     <window>
-        <scale>2</scale>
+        <scale>1</scale>
     </window>
     <!-- 
         Scanline intensity.
@@ -149,7 +149,7 @@
         2 = Manual   (Separate Buttons for High/Low)
         3 = Automatic 
     -->
-    <gear>0</gear>
+    <gear>3</gear>
     
     <!-- Use the N'th joystick on the system. -->
     <pad_id>0</pad_id>
@@ -202,7 +202,7 @@
          1 = On
          2 = Wheel Only
     -->
-    <analog enabled="1">
+    <analog enabled="2">
 		<!-- Select axis for analog controls             
              Set the axis to -1 to attempt to auto-detect the axis on first boot.
              Set invert to "1" when off and on and reversed (shouldn't be needed on gamepads).
