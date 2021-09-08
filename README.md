@@ -36,7 +36,7 @@ Build
 
 ### ArkOS
 
-    cmake -DTARGET=sdl2gles ../cmake/
+    cmake ../cmake -DTARGET=pi4-opengles.cmake
     make
 
 ### Non-IDE (e.g. straight GCC)

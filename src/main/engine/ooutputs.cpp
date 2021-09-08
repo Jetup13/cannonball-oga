@@ -17,6 +17,7 @@
     See license.txt for more details.
 ***************************************************************************/
 
+#include <iostream>
 #include <cstdlib> // abs
 
 #include "utils.hpp"
@@ -31,6 +32,8 @@
 
 OOutputs::OOutputs(void)
 {
+    mode = MODE_DISABLED;
+
     chute1.output_bit  = D_COIN1_SUCC;
     chute2.output_bit  = D_COIN2_SUCC;
 
@@ -53,6 +56,7 @@ void OOutputs::init()
     motor_state        = STATE_INIT;
     hw_motor_control   = MOTOR_OFF;
     dig_out            = 0;
+    dig_out_old        = -1;
     motor_control      = 0;
     motor_movement     = 0;
     is_centered        = false;
@@ -73,28 +77,58 @@ void OOutputs::init()
     chute2.counter[2]  = 0;
 }
 
-void OOutputs::tick(int MODE, int16_t input_motor, int16_t cabinet_type)
+void OOutputs::set_mode(int m)
 {
-    switch (MODE)
+    mode = m;
+}
+
+void OOutputs::tick(int16_t input_motor)
+{
+    switch (mode)
     {
+        case MODE_DISABLED:
+            break;
+
         // Force Feedback Steering Wheels
         case MODE_FFEEDBACK:
-            do_motors(MODE, input_motor);   // Use X-Position of wheel instead of motor position
+            do_motors(mode, input_motor);   // Use X-Position of wheel instead of motor position
             motor_output(hw_motor_control); // Force Feedback Handling
             break;
 
-        // CannonBoard: Real Cabinet
+        // SMARTYPI: Real Cabinet
         case MODE_CABINET:
-            if (cabinet_type == config.cannonboard.CABINET_MOVING)
+            if (config.smartypi.cabinet == Config::CABINET_MOVING)
             {
-                do_motors(MODE, input_motor);
-                do_vibrate_mini();
+                do_motors(mode, input_motor);
             }
-            else if (cabinet_type == config.cannonboard.CABINET_UPRIGHT)
-                do_vibrate_upright();
-            else if (cabinet_type == config.cannonboard.CABINET_MINI)
-                do_vibrate_mini();
+            else
+            {
+                if (config.smartypi.cabinet == Config::CABINET_UPRIGHT)
+                    do_vibrate_upright();
+                else if (config.smartypi.cabinet == Config::CABINET_MINI)
+                    do_vibrate_mini();
+            }
             break;
+
+        // GamePad: Basic Rumble
+        case MODE_RUMBLE:
+            do_vibrate_upright();
+            break;
+    }
+}
+
+void OOutputs::writeDigitalToConsole()
+{
+    if (config.smartypi.enabled && config.smartypi.ouputs)
+    {
+        if ((dig_out & D_BRAKE_LAMP) != (dig_out_old & D_BRAKE_LAMP))
+            std::cout << "brake_lamp = " << is_set(D_BRAKE_LAMP) << std::endl;
+        if ((dig_out & D_START_LAMP) != (dig_out_old & D_START_LAMP))
+            std::cout << "start_lamp = " << is_set(D_START_LAMP) << std::endl;
+        if ((dig_out & D_MOTOR) != (dig_out_old & D_MOTOR))
+            std::cout << "wheel_motor = " << is_set(D_MOTOR) << std::endl;
+
+        dig_out_old = dig_out;
     }
 }
 
@@ -110,6 +144,11 @@ void OOutputs::set_digital(uint8_t output)
 void OOutputs::clear_digital(uint8_t output)
 {
     dig_out &= ~output;
+}
+
+int OOutputs::is_set(uint8_t output)
+{
+    return (dig_out & output) ? 1 : 0;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -886,7 +925,7 @@ void OOutputs::do_vibrate_mini()
     const uint16_t speed = oinitengine.car_increment >> 16;
     uint16_t index = 0;
 
-    // Car Crashing: Diable Motor once speed below 10
+    // Car Crashing: Disable Motor once speed below 10
     if (ocrash.crash_counter)
     {
         if (speed <= 10)

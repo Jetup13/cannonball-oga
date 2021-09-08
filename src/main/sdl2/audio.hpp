@@ -31,9 +31,6 @@ struct wav_t {
 class Audio
 {
 public:
-    // Enable/Disable Sound
-    bool sound_enabled;
-
     Audio();
     ~Audio();
 
@@ -46,9 +43,9 @@ public:
     void clear_wav();
 
 private:
-    // Sample Rate. Can't be changed easily for now, due to lack of SDL resampling.
-    static const uint32_t FREQ = 44100;
-
+	// Enable/Disable Sound
+	bool sound_enabled;
+	
     // Stereo. Could be changed, requires some recoding.
     static const uint32_t CHANNELS = 2;
 
@@ -82,5 +79,23 @@ private:
 
     // SDL2 audio device
     SDL_AudioDeviceID dev;
+};
+#else
+class Audio
+{
+public:
+    // Enable/Disable Sound
+    bool sound_enabled = false;
+
+    Audio() {}
+    ~Audio() {}
+
+    void init() {}
+    void tick() {}
+    void start_audio() {}
+    void stop_audio() {}
+    double adjust_speed() { return 1.0; }
+    void load_wav(const char* filename);
+    void clear_wav() {}
 };
 #endif

@@ -9,7 +9,6 @@
     See license.txt for more details.
 ***************************************************************************/
 
-#include <iostream>
 #include "engine/ohud.hpp"
 #include "engine/omusic.hpp"
 #include "engine/outils.hpp"
@@ -40,7 +39,6 @@ const static uint8_t LAP_MS_60[] =
 
 OStats::OStats(void)
 {
-    lap_ms = config.engine.fix_timer ? LAP_MS_60 : LAP_MS_64;
 }
 
 OStats::~OStats(void)
@@ -50,6 +48,8 @@ OStats::~OStats(void)
 void OStats::init(bool ttrial)
 {
     credits = ttrial ? 1 : 0;
+    // Choose correct lookup table if timing bugs fixed
+    lap_ms = config.engine.fix_timer ? LAP_MS_60 : LAP_MS_64;
 }
 
 void OStats::clear_stage_times()
@@ -61,9 +61,6 @@ void OStats::clear_stage_times()
         for (int j = 0; j < 3; j++)
             stage_times[i][j] = 0;
     }
-
-    // Choose correct lookup table if timing bugs fixed
-    lap_ms = config.engine.fix_timer ? LAP_MS_60 : LAP_MS_64;
 }
 
 void OStats::clear_route_info()
@@ -213,6 +210,8 @@ void OStats::init_next_level()
                 time_counter = outils::bcd_add(time_counter, TIME[time_lookup]);
             else if (outrun.cannonball_mode == outrun.MODE_CONT)
                 time_counter = outils::bcd_add(time_counter, 0x55);
+
+            if (time_counter > 0x99) time_counter = 0x99;
         }
 
         // Draw last laptime
@@ -229,10 +228,6 @@ void OStats::init_next_level()
         ohud.draw_stage_number(0x110d76, cur_stage+1);
         // No need to redraw the stage info as that was a bug in the original game
     }
-}
-
-uint32_t OStats::get_score() {
-    return score;
 }
 
 // Time Tables

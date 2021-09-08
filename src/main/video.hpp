@@ -18,9 +18,14 @@
 #include "hwvideo/hwsprites.hpp"
 #include "hwvideo/hwroad.hpp"
 
+namespace shadow
+{
+    const static float ORIGINAL = 0.63f; // Hardware Intensity (63%)
+    const static float MAME = 0.78f;     // Mame Intensity (78%)
+};
+
 class hwsprites;
 class RenderBase;
-
 struct video_settings_t;
 
 class Video
@@ -29,8 +34,6 @@ public:
 	hwsprites* sprite_layer;
     hwtiles* tile_layer;
 	uint16_t *pixels;
-	uint32_t *pixels_copy_rgb;
-	uint32_t *pixels_copy_greyscale;
 
     bool enabled;
 
@@ -40,11 +43,11 @@ public:
 	int init(Roms* roms, video_settings_t* settings);
     void disable();
     int set_video_mode(video_settings_t* settings);
-    void draw_frame();
-	uint32_t* get_pixels_rgb();
-	uint32_t* get_pixels_greyscale();
-	int get_pixel_buffer_frame_width();
-	int get_pixel_buffer_frame_height();
+    void set_shadow_intensity(float);
+    void prepare_frame();
+    void render_frame();
+    bool supports_window();
+    bool supports_vsync();
 
     void clear_text_ram();
     void write_text8(uint32_t, const uint8_t);

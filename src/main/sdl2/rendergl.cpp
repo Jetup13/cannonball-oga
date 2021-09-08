@@ -17,12 +17,12 @@
 
 const static uint32_t SCANLINE_TEXTURE[] = { 0x00000000, 0xff000000 }; // BGRA 8-8-8-8-REV
 
-RenderGL::RenderGL()
+Render::Render()
 {
 
 }
 
-bool RenderGL::init(int src_width, int src_height,
+bool Render::init(int src_width, int src_height,
                     int scale,
                     int video_mode,
                     int scanlines)
@@ -103,7 +103,7 @@ bool RenderGL::init(int src_width, int src_height,
     // scn_* values will be ignored if we pass any of the FULLSCREEN flags, as expected.
     // So these are here just for the windowed modes, and ignored otherwise.
     window = SDL_CreateWindow(
-        "Cannonball", 0, 0, scn_width, scn_height, 
+        "Cannonball", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, scn_width, scn_height,
         flags);
 
     // I don't know if there are platforms where ES is the default profile, so just in case
@@ -113,6 +113,9 @@ bool RenderGL::init(int src_width, int src_height,
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
 
     glcontext = SDL_GL_CreateContext(window);
+
+    // Attempt to use V-Sync if enabled
+    SDL_GL_SetSwapInterval(config.video.vsync);
 
     if (!surface)
     {
@@ -167,7 +170,8 @@ bool RenderGL::init(int src_width, int src_height,
     glViewport(0, 0, scn_width, scn_height);
 
     // Initalize Texture ID
-    glGenTextures(scanlines ? 2 : 1, textures);
+    bool enable_scanlines = scanlines && (scale != 1 || video_mode != video_settings_t::MODE_WINDOW);
+    glGenTextures(enable_scanlines ? 2 : 1, textures);
 
     // Screen Texture Setup
     const GLint param = config.video.filtering ? GL_LINEAR : GL_NEAREST;
@@ -182,7 +186,7 @@ bool RenderGL::init(int src_width, int src_height,
                 NULL);
 
     // Scanline Texture Setup
-    if (scanlines)
+    if (enable_scanlines)
     {
         glBindTexture(GL_TEXTURE_2D, textures[SCANLN]);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -216,7 +220,7 @@ bool RenderGL::init(int src_width, int src_height,
             glVertex2i  (screen_xoff + dst_width, screen_yoff + dst_height);  // lower right
         glEnd();
 
-        if (scanlines)
+        if (enable_scanlines)
         {
             glEnable(GL_BLEND);
                 glColor4ub(255, 255, 255, ((scanlines - 1) << 8) / 100);
@@ -241,7 +245,7 @@ bool RenderGL::init(int src_width, int src_height,
     return true;
 }
 
-void RenderGL::disable()
+void Render::disable()
 {
     glDeleteLists(dlist, 1);
     glDeleteTextures(scanlines ? 2 : 1, textures);
@@ -251,12 +255,12 @@ void RenderGL::disable()
     SDL_GL_DeleteContext(glcontext); 
 }
 
-bool RenderGL::start_frame()
+bool Render::start_frame()
 {
     return !(SDL_MUSTLOCK(surface) && SDL_LockSurface(surface) < 0);
 }
 
-bool RenderGL::finalize_frame()
+bool Render::finalize_frame()
 {
     if (SDL_MUSTLOCK(surface))
         SDL_UnlockSurface(surface);
@@ -264,13 +268,13 @@ bool RenderGL::finalize_frame()
     return true;
 }
 
-void RenderGL::draw_frame(uint16_t* pixels)
+void Render::draw_frame(uint16_t* pixels)
 {
     uint32_t* spix = screen_pixels;
 
     // Lookup real RGB value from rgb array for backbuffer
     for (int i = 0; i < (src_width * src_height); i++)
-        *(spix++) = rgb[*(pixels++) & ((S16_PALETTE_ENTRIES * 3) - 1)];
+        *(spix++) = rgb[*(pixels++)];
 
     glBindTexture(GL_TEXTURE_2D, textures[SCREEN]);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,            // target, LOD, xoff, yoff
@@ -283,4 +287,9 @@ void RenderGL::draw_frame(uint16_t* pixels)
     //glFinish();
 
     SDL_GL_SwapWindow(window);
+}
+
+bool Render::supports_vsync()
+{
+    return SDL_GL_GetSwapInterval() == 1;
 }

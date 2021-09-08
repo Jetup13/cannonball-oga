@@ -12,54 +12,29 @@
 #include <iostream>
 
 #include "video.hpp"
-#include "setup.hpp"
 #include "globals.hpp"
 #include "frontend/config.hpp"
+#include "engine/oroad.hpp"
 
 #ifdef WITH_OPENGL
-
-#if defined SDL2
 #include "sdl2/rendergl.hpp"
-#else
-#include "sdl/rendergl.hpp"
-#endif
-
-#endif
-
-#if defined SDL2
-
-#if defined WITH_OPENGLES
+#elif WITH_OPENGLES
 #include "sdl2/rendergles.hpp"
 #else
 #include "sdl2/rendersurface.hpp"
 #endif
 
-#else
-#include "sdl/rendersw.hpp"
-#endif //SDL2
-
 Video video;
 
 Video::Video(void)
 {
-    #ifdef WITH_OPENGL
-    renderer     = new RenderGL();
-    
-    #elif defined SDL2
-
-    #ifdef WITH_OPENGLES
-    renderer	 = new RenderGLES();
-    #else
-    renderer     = new RenderSurface();
-    #endif
-
-    #else
-    renderer     = new RenderSW();
-    #endif
-
+    renderer     = new Render();
     pixels       = NULL;
     sprite_layer = new hwsprites();
     tile_layer   = new hwtiles();
+
+    set_shadow_intensity(shadow::ORIGINAL);
+    enabled      = false;
 }
 
 Video::~Video(void)
@@ -67,8 +42,6 @@ Video::~Video(void)
     delete sprite_layer;
     delete tile_layer;
     if (pixels) delete[] pixels;
-    if (pixels_copy_rgb) delete[] pixels_copy_rgb;
-    if (pixels_copy_greyscale) delete[] pixels_copy_greyscale;
     renderer->disable();
     delete renderer;
 }
@@ -81,12 +54,6 @@ int Video::init(Roms* roms, video_settings_t* settings)
     // Internal pixel array. The size of this is always constant
     if (pixels) delete[] pixels;
     pixels = new uint16_t[config.s16_width * config.s16_height];
-
-    // Storage of on-demand pixel array copy made available to exterior sources
-    if (pixels_copy_rgb) delete[] pixels_copy_rgb;
-    pixels_copy_rgb = new uint32_t[config.s16_width * config.s16_height];
-    if (pixels_copy_greyscale) delete[] pixels_copy_greyscale;
-    pixels_copy_greyscale = new uint32_t[config.s16_width * config.s16_height];
 
     // Convert S16 tiles to a more useable format
     tile_layer->init(roms->tiles.rom, config.video.hires != 0);
@@ -122,6 +89,7 @@ int Video::init(Roms* roms, video_settings_t* settings)
 void Video::disable()
 {
     renderer->disable();
+    enabled = false;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -156,12 +124,36 @@ int Video::set_video_mode(video_settings_t* settings)
     if (settings->scale < 1)
         settings->scale = 1;
 
+    set_shadow_intensity(settings->shadow == 0 ? shadow::ORIGINAL : shadow::MAME);
+
     renderer->init(config.s16_width, config.s16_height, settings->scale, settings->mode, settings->scanlines);
 
     return 1;
 }
 
-void Video::draw_frame()
+// --------------------------------------------------------------------------------------------
+// Shadow Colours. 
+// 63% Intensity is the correct value derived from hardware as follows:
+//
+// 1/ Shadows are just an extra 220 ohm resistor that goes to ground when enabled.
+// 2/ This is in parallel with the resistor-"DAC" (3.9k, 2k, 1k, 0.5k, 0.25k), 
+//    and otherwise left floating.
+//
+// Static calculation example:
+// 
+// const float rDAC   = 1.f / (1.f/3900.f + 1.f/2000.f + 1.f/1000.f + 1.f/500.f + 1.f/250.f); 
+// const float rShade = 220.f;                                                             
+// const float shadeAttenuation = rShade / (rShade + rDAC); // 0.63f
+// 
+// (MAME uses an incorrect value which is closer to 78% Intensity)
+// --------------------------------------------------------------------------------------------
+
+void Video::set_shadow_intensity(float f)
+{
+    renderer->set_shadow_intensity(f);
+}
+
+void Video::prepare_frame()
 {
     // Renderer Specific Frame Setup
     if (!renderer->start_frame())
@@ -181,31 +173,28 @@ void Video::draw_frame()
         (hwroad.*hwroad.render_background)(pixels);
         tile_layer->render_tile_layer(pixels, 1, 0);      // background layer
         tile_layer->render_tile_layer(pixels, 0, 0);      // foreground layer
-        (hwroad.*hwroad.render_foreground)(pixels);
+
+        if (!config.engine.fix_bugs || oroad.horizon_base != ORoad::HORIZON_OFF)
+            (hwroad.*hwroad.render_foreground)(pixels);
         sprite_layer->render(8);
         tile_layer->render_text_layer(pixels, 1);
      }
+}
 
+void Video::render_frame()
+{
     renderer->draw_frame(pixels);
     renderer->finalize_frame();
 }
 
-uint32_t* Video::get_pixels_rgb() {
-    renderer->convert_pixels_to_rgb(config.s16_width, config.s16_height, pixels, pixels_copy_rgb);
-    return pixels_copy_rgb;
+bool Video::supports_window()
+{
+    return renderer->supports_window();
 }
 
-uint32_t* Video::get_pixels_greyscale() {
-    renderer->convert_pixels_to_greyscale(config.s16_width, config.s16_height, pixels, pixels_copy_greyscale);
-    return pixels_copy_greyscale;
-}
-
-int Video::get_pixel_buffer_frame_width() {
-    return config.s16_width;
-}
-
-int Video::get_pixel_buffer_frame_height() {
-    return config.s16_height;
+bool Video::supports_vsync()
+{
+    return renderer->supports_vsync();
 }
 
 // ---------------------------------------------------------------------------

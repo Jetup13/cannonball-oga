@@ -5,38 +5,26 @@
     See license.txt for more details.
 ***************************************************************************/
 
-// Error reporting
+#include <cstring>
 #include <iostream>
 
 // SDL Library
 #include <SDL.h>
-#ifndef SDL2
-#pragma comment(lib, "SDLmain.lib") // Replace main with SDL_main
-#endif
-#pragma comment(lib, "SDL.lib")
-#pragma comment(lib, "glu32.lib")
 
 // SDL Specific Code
-#if defined SDL2
 #include "sdl2/timer.hpp"
 #include "sdl2/input.hpp"
-#else
-#include "sdl/timer.hpp"
-#include "sdl/input.hpp"
-#endif
 
 #include "video.hpp"
 
 #include "romloader.hpp"
 #include "trackloader.hpp"
 #include "stdint.hpp"
-#include "sharedresources.hpp"
-#include "setup.hpp"
+#include "main.hpp"
 #include "engine/outrun.hpp"
 #include "frontend/config.hpp"
 #include "frontend/menu.hpp"
 
-#include "cannonboard/interface.hpp"
 #include "engine/oinputs.hpp"
 #include "engine/ooutputs.hpp"
 #include "engine/omusic.hpp"
@@ -45,18 +33,31 @@
 // Fine to include on non-windows builds as dummy functions used.
 #include "directx/ffeedback.hpp"
 
+// ------------------------------------------------------------------------------------------------
 // Initialize Shared Variables
+// ------------------------------------------------------------------------------------------------
 using namespace cannonball;
 
+int    cannonball::state       = STATE_BOOT;
+double cannonball::frame_ms    = 0;
+int    cannonball::frame       = 0;
+bool   cannonball::tick_frame  = true;
+int    cannonball::fps_counter = 0;
+
+// ------------------------------------------------------------------------------------------------
+// Main Variables and Pointers
+// ------------------------------------------------------------------------------------------------
+Audio cannonball::audio;
 Menu* menu;
-Interface cannonboard;
+bool pause_engine;
+
+
+// ------------------------------------------------------------------------------------------------
 
 static void quit_func(int code)
 {
-#ifdef COMPILE_SOUND_CODE
     audio.stop_audio();
-#endif
-    input.close();
+    input.close_joy();
     forcefeedback::close();
     delete menu;
     SDL_Quit();
@@ -96,6 +97,30 @@ static void process_events(void)
                 input.handle_joy_up(&event.jbutton);
                 break;
 
+            case SDL_CONTROLLERAXISMOTION:
+                input.handle_controller_axis(&event.caxis);
+                break;
+
+            case SDL_CONTROLLERBUTTONDOWN:
+                input.handle_controller_down(&event.cbutton);
+                break;
+
+            case SDL_CONTROLLERBUTTONUP:
+                input.handle_controller_up(&event.cbutton);
+                break;
+
+            case SDL_JOYHATMOTION:
+                input.handle_joy_hat(&event.jhat);
+                break;
+
+            case SDL_JOYDEVICEADDED:
+                input.open_joy();
+                break;
+
+            case SDL_JOYDEVICEREMOVED:
+                input.close_joy();
+                break;
+
             case SDL_QUIT:
                 // Handle quit requests (like Ctrl-c).
                 state = STATE_QUIT;
@@ -104,60 +129,44 @@ static void process_events(void)
     }
 }
 
-// Pause Engine
-bool pause_engine;
-
 static void tick()
 {
     frame++;
 
-    // Get CannonBoard Packet Data
-    Packet* packet = config.cannonboard.enabled ? cannonboard.get_packet() : NULL;
-
-    // Non standard FPS.
-    // Determine whether to tick the current frame.
-    if (config.fps != 30)
-    {
-        if (config.fps == 60)
-            tick_frame = frame & 1;
-        else if (config.fps == 120)
-            tick_frame = (frame & 3) == 1;
-    }
+    // Non standard FPS: Determine whether to tick certain logic for the current frame.
+    if (config.fps == 60)
+        tick_frame = frame & 1;
+    else if (config.fps == 120)
+        tick_frame = (frame & 3) == 1;
 
     process_events();
 
     if (tick_frame)
-        oinputs.tick(packet); // Do Controls
-    oinputs.do_gear();        // Digital Gear
-
+    {
+        oinputs.tick();           // Do Controls
+        oinputs.do_gear();        // Digital Gear
+    }
+     
     switch (state)
     {
         case STATE_GAME:
         {
-            if (input.has_pressed(Input::TIMER))
-                outrun.freeze_timer = !outrun.freeze_timer;
-
-            if (input.has_pressed(Input::PAUSE))
-                pause_engine = !pause_engine;
-
-            if (input.has_pressed(Input::MENU))
-                state = STATE_INIT_MENU;
+            if (tick_frame)
+            {
+                if (input.has_pressed(Input::TIMER)) outrun.freeze_timer = !outrun.freeze_timer;
+                if (input.has_pressed(Input::PAUSE)) pause_engine = !pause_engine;
+                if (input.has_pressed(Input::MENU))  state = STATE_INIT_MENU;
+            }
 
             if (!pause_engine || input.has_pressed(Input::STEP))
             {
-                outrun.tick(packet, tick_frame);
-                input.frame_done(); // Denote keys read
-
-                #ifdef COMPILE_SOUND_CODE
-                // Tick audio program code
+                outrun.tick(tick_frame);
+                if (tick_frame) input.frame_done();
                 osoundint.tick();
-                // Tick SDL Audio
-                audio.tick();
-                #endif
             }
             else
             {                
-                input.frame_done(); // Denote keys read
+                if (tick_frame) input.frame_done();
             }
         }
         break;
@@ -169,6 +178,7 @@ static void tick()
             }
             else
             {
+                tick_frame = true;
                 pause_engine = false;
                 outrun.init();
                 state = STATE_GAME;
@@ -176,17 +186,10 @@ static void tick()
             break;
 
         case STATE_MENU:
-        {
-            menu->tick(packet);
+            menu->tick();
             input.frame_done();
-            #ifdef COMPILE_SOUND_CODE
-            // Tick audio program code
             osoundint.tick();
-            // Tick SDL Audio
-            audio.tick();
-            #endif
-        }
-        break;
+            break;
 
         case STATE_INIT_MENU:
             oinputs.init();
@@ -195,12 +198,13 @@ static void tick()
             state = STATE_MENU;
             break;
     }
-    // Write CannonBoard Outputs
-    if (config.cannonboard.enabled)
-        cannonboard.write(outrun.outputs->dig_out, outrun.outputs->hw_motor_control);
 
-    // Draw SDL Video
-    video.draw_frame();  
+    // Map OutRun outputs to CannonBall devices (SmartyPi Interface / Controller Rumble)
+    outrun.outputs->writeDigitalToConsole();
+    if (tick_frame)
+    {
+         input.set_rumble(outrun.outputs->is_set(OOutputs::D_MOTOR), config.controls.rumble);
+    }
 }
 
 static void main_loop()
@@ -211,30 +215,37 @@ static void main_loop()
     fps_count.start();
 
     // General Frame Timing
+    bool vsync = config.video.vsync == 1 && video.supports_vsync();
     Timer frame_time;
-    int t;
-    double deltatime  = 0;
-    int deltaintegral = 0;
+    int t;                              // Actual timing of tick in ms as measured by SDL (ms)
+    double deltatime  = 0;              // Time we want an entire frame to take (ms)
+    int deltaintegral = 0;              // Integer version of above
 
     while (state != STATE_QUIT)
     {
         frame_time.start();
+        // Tick Engine
         tick();
-        #ifdef COMPILE_SOUND_CODE
-        deltatime += (frame_ms * audio.adjust_speed());
-        #else
-        deltatime += frame_ms;
-        #endif
-        deltaintegral  = (int) deltatime;
-        t = frame_time.get_ticks();
 
-        // Cap Frame Rate: Sleep Remaining Frame Time
-        if (!config.video.fps_cap_disable && t < deltatime)
-        {
-            SDL_Delay((Uint32) (deltatime - t));
-        }
+        // Draw SDL Video
+        video.prepare_frame();
+        video.render_frame();
+
+        // Fill SDL Audio Buffer For Callback
+        audio.tick();
         
-        deltatime -= deltaintegral;
+        // Calculate Timings. Cap Frame Rate. Note this might be trumped by V-Sync
+        if (!vsync)
+        {
+            deltatime += (frame_ms * audio.adjust_speed());
+            deltaintegral = (int)deltatime;
+            t = frame_time.get_ticks();
+            
+            if (t < deltatime)
+                SDL_Delay((Uint32)(deltatime - t));
+
+            deltatime -= deltaintegral;
+        }
 
         if (config.video.fps_count)
         {
@@ -252,84 +263,85 @@ static void main_loop()
     quit_func(0);
 }
 
+// Very (very) simple command line parser.
+// Returns true if everything is ok to proceed with launching th engine.
+static bool parse_command_line(int argc, char* argv[])
+{
+    for (int i = 0; i < argc; i++)
+    {
+        if (strcmp(argv[i], "-cfgfile") == 0 && i+1 < argc)
+        {
+            config.set_config_file(argv[i+1]);
+        }
+        else if (strcmp(argv[i], "-file") == 0 && i+1 < argc)
+        {
+            if (!trackloader.set_layout_track(argv[i+1]))
+                return false;
+        }
+        else if (strcmp(argv[i], "-help") == 0)
+        {
+            std::cout << "Command Line Options:\n\n" <<
+                         "-cfgfile: Location and name of config.xml\n" <<
+                         "-file   : LayOut Editor track data to load\n" << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+
 int main(int argc, char* argv[])
 {
-    // Initialize timer and video systems
-    if( SDL_Init( SDL_INIT_TIMER | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) == -1 ) 
-    { 
-        std::cerr << "SDL Initialization Failed: " << SDL_GetError() << std::endl;
-        return 1; 
-    }
+    // Parse command line arguments (config file location, LayOut data) 
+    bool ok = parse_command_line(argc, argv);
 
-    menu = new Menu(&cannonboard);
-
-    bool loaded = false;
-
-    // Load LayOut File
-    if (argc == 3 && strcmp(argv[1], "-file") == 0)
+    if (ok)
     {
-        if (trackloader.set_layout_track(argv[2]))
-            loaded = roms.load_revb_roms(); 
+        config.load(); // Load config.XML file
+        ok = roms.load_revb_roms(config.sound.fix_samples);
     }
-    // Load Roms Only
-    else
-    {
-        loaded = roms.load_revb_roms();
-    }
-
-    //trackloader.set_layout_track("d:/temp.bin");
-    //loaded = roms.load_revb_roms();
-
-    if (loaded)
-    {
-        // Load XML Config
-        config.load(FILENAME_CONFIG);
-
-        // Load fixed PCM ROM based on config
-        if (config.sound.fix_samples)
-            roms.load_pcm_rom(true);
-
-        // Load patched widescreen tilemaps
-        if (!omusic.load_widescreen_map())
-            std::cout << "Unable to load widescreen tilemaps" << std::endl;
-
-#ifndef SDL2
-        //Set the window caption 
-        SDL_WM_SetCaption( "Cannonball", NULL ); 
-#endif
-
-        // Initialize SDL Video
-        if (!video.init(&roms, &config.video))
-            quit_func(1);
-
-#ifdef COMPILE_SOUND_CODE
-        audio.init();
-#endif
-        state = config.menu.enabled ? STATE_INIT_MENU : STATE_INIT_GAME;
-
-        // Initalize controls
-        input.init(config.controls.pad_id,
-                   config.controls.keyconfig, config.controls.padconfig, 
-                   config.controls.analog,    config.controls.axis, config.controls.asettings);
-
-        if (config.controls.haptic) 
-            config.controls.haptic = forcefeedback::init(config.controls.max_force, config.controls.min_force, config.controls.force_duration);
-        
-        // Initalize CannonBoard (For use in original cabinets)
-        if (config.cannonboard.enabled)
-        {
-            cannonboard.init(config.cannonboard.port, config.cannonboard.baud);
-            cannonboard.start();
-        }
-
-        // Populate menus
-        menu->populate();
-        main_loop();  // Loop until we quit the app
-    }
-    else
+    if (!ok)
     {
         quit_func(1);
+        return 0;
     }
+
+    // Load gamecontrollerdb.txt mappings
+    if (SDL_GameControllerAddMappingsFromFile((config.data.res_path + "gamecontrollerdb.txt").c_str()) == -1)
+        std::cout << "Unable to load controller mapping" << std::endl;
+
+    // Initialize timer and video systems
+    if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC) == -1)
+    {
+        std::cerr << "SDL Initialization Failed: " << SDL_GetError() << std::endl;
+        return 1;
+    }
+
+    // Load patched widescreen tilemaps
+    if (!omusic.load_widescreen_map(config.data.res_path))
+        std::cout << "Unable to load widescreen tilemaps" << std::endl;
+
+    // Initialize SDL Video
+    config.set_fps(config.video.fps);
+    if (!video.init(&roms, &config.video))
+        quit_func(1);
+
+    // Initialize SDL Audio
+    audio.init();
+
+    state = config.menu.enabled ? STATE_INIT_MENU : STATE_INIT_GAME;
+
+    // Initalize SDL Controls
+    input.init(config.controls.pad_id,
+               config.controls.keyconfig, config.controls.padconfig, 
+               config.controls.analog,    config.controls.axis, config.controls.invert, config.controls.asettings);
+
+    if (config.controls.haptic) 
+        config.controls.haptic = forcefeedback::init(config.controls.max_force, config.controls.min_force, config.controls.force_duration);
+        
+    // Populate menus
+    menu = new Menu();
+    menu->populate();
+    main_loop();  // Loop until we quit the app
 
     // Never Reached
     return 0;

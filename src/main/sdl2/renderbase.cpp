@@ -1,5 +1,6 @@
 #include "renderbase.hpp"
 #include <iostream>
+#include <cmath>
 
 RenderBase::RenderBase()
 {
@@ -15,9 +16,8 @@ bool RenderBase::sdl_screen_size()
 {
     if (orig_width == 0 || orig_height == 0)
     {
-	SDL_DisplayMode info;
-
-	SDL_GetCurrentDisplayMode(0, &info);
+	    SDL_DisplayMode info;
+	    SDL_GetCurrentDisplayMode(0, &info);
         
         orig_width  = info.w; 
         orig_height = info.h;
@@ -32,39 +32,27 @@ bool RenderBase::sdl_screen_size()
 // See: SDL_PixelFormat
 #define CURRENT_RGB() (r << Rshift) | (g << Gshift) | (b << Bshift);
 
-void RenderBase::convert_palette(uint32_t adr, uint32_t r, uint32_t g, uint32_t b)
+void RenderBase::convert_palette(uint32_t adr, uint32_t r1, uint32_t g1, uint32_t b1)
 {
     adr >>= 1;
 
-    r = r * 255 / 31;
-    g = g * 255 / 31;
-    b = b * 255 / 31;
+    uint32_t r = r1 * 8;
+    uint32_t g = g1 * 8;
+    uint32_t b = b1 * 8;
 
     rgb[adr] = CURRENT_RGB();
-      
-    // Create shadow / highlight colours at end of RGB array
-    // The resultant values are the same as MAME
-    r = r * 202 / 256;
-    g = g * 202 / 256;
-    b = b * 202 / 256;
+
+    // Create shadow colours at end of RGB array
+    r = r1 * shadow_multi / 31;
+    g = g1 * shadow_multi / 31;
+    b = b1 * shadow_multi / 31;
         
-    rgb[adr + S16_PALETTE_ENTRIES] =
-    rgb[adr + (S16_PALETTE_ENTRIES * 2)] = CURRENT_RGB();
+    rgb[adr + S16_PALETTE_ENTRIES] = CURRENT_RGB(); // Add to the end of the array
+
+    // Highlight colour code would be added here, but unused.
 }
 
-void RenderBase::convert_pixels_to_rgb(int width, int height, uint16_t* source_pixels, uint32_t* converted_pixels_rbg) {
-    for (int i = 0; i < (width * height); i++)
-        *(converted_pixels_rbg++) = rgb[*(source_pixels++) & ((S16_PALETTE_ENTRIES * 3) - 1)];
-}
-
-void RenderBase::convert_pixels_to_greyscale(int width, int height, uint16_t* source_pixels, uint32_t* converted_pixels_greyscale) {
-    for (int i = 0; i < (width * height); i++) {
-        uint32_t rgb_value = rgb[*(source_pixels++) & ((S16_PALETTE_ENTRIES * 3) - 1)];
-        uint32_t blue = ((rgb_value & 0xFF0000) >> 16);
-        uint32_t green = ((rgb_value & 0xFF00) >> 8);
-        uint32_t red = ((rgb_value & 0xFF));
-        // http://stackoverflow.com/questions/596216/formula-to-determine-brightness-of-rgb-color?rq=1
-        uint32_t greyscale_value = (red + red + red + blue + blue + green + green + green) >> 3;
-        *(converted_pixels_greyscale++) = greyscale_value;
-    }
+void RenderBase::set_shadow_intensity(float f)
+{
+    shadow_multi = (int) std::round(255.0f * f);
 }

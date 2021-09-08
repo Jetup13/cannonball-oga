@@ -36,6 +36,19 @@ public:
     // Ferrari Shadow Sprite Object
     oentry *spr_shadow;
 
+    // -------------------------------------------------------------------------
+    // Ferrari Colours
+    // -------------------------------------------------------------------------
+
+    // Palette to use (change Ferrari colours)
+    uint16_t ferrari_pal;
+
+    const static uint16_t PAL_RED = 2;
+    const static uint16_t PAL_BLUE = 256;
+    const static uint16_t PAL_YELLOW = 261;
+    const static uint16_t PAL_GREEN = 266;
+    const static uint16_t PAL_CYAN = 271;
+
 	// -------------------------------------------------------------------------
 	// Main Switch Variables
 	// -------------------------------------------------------------------------
@@ -214,8 +227,6 @@ public:
     void do_sound_score_slip();
     void shake();
     void do_skid();
-    bool is_crashed();
-    int num_wheels_off_road();
     
 private:
     // Max speed of car
@@ -273,7 +284,7 @@ private:
     int8_t cornering;
     int8_t cornering_old;
 
-    static const uint16_t torque_lookup[];
+    static uint16_t torque_lookup[];
     static const uint8_t rev_inc_lookup[];
 
     void logic();
